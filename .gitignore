@@ -26,6 +26,10 @@ storage.googleapis.com
 runs/*
 data/*
 !data/hyps/*
+
+!data/hyps/hyp.scratch_adamw.yaml
+!data/widerface.yaml
+
 !data/images/zidane.jpg
 !data/images/bus.jpg
 !data/*.sh
@@ -247,3 +251,4 @@ com_crashlytics_export_strings.xml
 crashlytics.properties
 crashlytics-build.properties
 fabric.properties
+
