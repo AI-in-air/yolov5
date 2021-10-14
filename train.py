@@ -23,7 +23,7 @@ import torch.nn as nn
 import yaml
 from torch.cuda import amp
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.optim import Adam, SGD, lr_scheduler
+from torch.optim import Adam, AdamW, SGD, lr_scheduler
 from tqdm import tqdm
 
 FILE = Path(__file__).resolve()
@@ -49,6 +49,7 @@ from utils.loggers.wandb.wandb_utils import check_wandb_resume
 from utils.metrics import fitness
 from utils.loggers import Loggers
 from utils.callbacks import Callbacks
+from models.common import Bottleneck
 
 LOGGER = logging.getLogger(__name__)
 LOCAL_RANK = int(os.getenv('LOCAL_RANK', -1))  # https://pytorch.org/docs/stable/elastic/run.html
@@ -147,7 +148,8 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
             g1.append(v.weight)
 
     if opt.adam:
-        optimizer = Adam(g0, lr=hyp['lr0'], betas=(hyp['momentum'], 0.999))  # adjust beta1 to momentum
+        # optimizer = Adam(g0, lr=hyp['lr0'], betas=(hyp['momentum'], 0.999))  # adjust beta1 to momentum
+        optimizer = AdamW(g0, lr=hyp['lr0'])
     else:
         optimizer = SGD(g0, lr=hyp['lr0'], momentum=hyp['momentum'], nesterov=True)
 
@@ -322,6 +324,16 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
             # Backward
             scaler.scale(loss).backward()
 
+            # @Moyan ==================================== add tensorboard bn step1. create ignore_bn_list ==================================== @Moyan #
+            ignore_bn_list = []
+            for k, m in model.named_modules():
+                if isinstance(m, Bottleneck):
+                    if m.add:
+                        ignore_bn_list.append(k.rsplit(".", 2)[0] + ".cv1.bn")
+                        ignore_bn_list.append(k + '.cv1.bn')
+                        ignore_bn_list.append(k + '.cv2.bn')
+            # @Moyan ==================================== add tensorboard bn step1. create ignore_bn_list ==================================== @Moyan #
+
             # Optimize
             if ni - last_opt_step >= accumulate:
                 scaler.step(optimizer)  # optimizer.step
@@ -343,6 +355,30 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
         # Scheduler
         lr = [x['lr'] for x in optimizer.param_groups]  # for loggers
         scheduler.step()
+
+        # @Moyan ==================================== add tensorboard bn step2. tensorboard show bn histogram ==================================== @Moyan #
+        module_list = []
+        module_bias_list = []
+        for i, layer in model.named_modules():
+            if isinstance(layer, nn.BatchNorm2d) and i not in ignore_bn_list:
+                bnw = layer.state_dict()['weight']
+                bnb = layer.state_dict()['bias']
+                module_list.append(bnw)
+                module_bias_list.append(bnb)
+        size_list = [idx.data.shape[0] for idx in module_list]
+        
+        bn_weights = torch.zeros(sum(size_list))
+        bnb_weights = torch.zeros(sum(size_list))
+        index = 0
+        for idx, size in enumerate(size_list):
+            bn_weights[index:(index + size)] = module_list[idx].data.abs().clone()
+            bnb_weights[index:(index + size)] = module_bias_list[idx].data.abs().clone()
+            index += size
+        # print("bn_weights:", torch.sort(bn_weights))
+        # print("bn_bias:", torch.sort(bnb_weights))
+        loggers.tb.add_histogram('bn_weights/hist', bn_weights.numpy(), epoch, bins='doane')
+        loggers.tb.add_histogram('bn_bias/hist', bnb_weights.numpy(), epoch, bins='doane')
+        # @Moyan ==================================== add tensorboard bn step2. tensorboard show bn histogram ==================================== @Moyan #
 
         if RANK in [-1, 0]:
             # mAP

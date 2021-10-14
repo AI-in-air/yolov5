@@ -1,0 +1,15 @@
+# widerface
+# imgset style
+#  images
+#    -- train
+#    -- train
+#  labels 
+#    -- train
+#    -- train
+
+train: /data/widerface/yolo_style/images/train  # train images
+val: /data/widerface/yolo_style/images/train   # val images
+
+# Classes
+nc: 1  # number of classes
+names: ['face']  # class name
