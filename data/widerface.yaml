@@ -7,8 +7,8 @@
 #    -- train
 #    -- train
 
-train: /data/widerface/yolo_style/images/train  # train images
-val: /data/widerface/yolo_style/images/train   # val images
+train: D:/Dataset/wider_face_add_lm_10_10/images/train  # train images
+val: D:/Dataset/wider_face_add_lm_10_10/images/test   # val images
 
 # Classes
 nc: 1  # number of classes
